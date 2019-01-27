@@ -146,6 +146,7 @@ export async function initRepo({
       ...config,
       url,
     });
+    // TODO: Check if needed await Promise.all([getFileList()]);
   } catch (err) /* istanbul ignore next */ {
     logger.debug({ err }, 'Caught initRepo error');
     if (err.message.includes('HEAD is not a symbolic ref')) {
@@ -590,25 +591,36 @@ export async function ensureCommentRemoval(issueNo: number, topic: string) {
   }
 }
 
-export async function getPrList() {
+const mapPullRequests = (pr: {
+  iid: number;
+  source_branch: string;
+  title: string;
+  state: string;
+  created_at: string;
+}) => ({
+  number: pr.iid,
+  branchName: pr.source_branch,
+  title: pr.title,
+  state: pr.state === 'opened' ? 'open' : pr.state,
+  createdAt: pr.created_at,
+});
+
+export async function getPrList(branchPrefix: string) {
+  logger.debug(
+    `getPrList(${branchPrefix}), ${config.prList && config.prList.length}`
+  );
+
+  if (!branchPrefix) {
+    throw new Error('called gitlab.getPrList without branchPrefix');
+  }
+
   if (!config.prList) {
-    const urlString = `projects/${config.repository}/merge_requests?per_page=100`;
-    const res = await api.get(urlString, { paginate: true });
-    config.prList = res.body.map(
-      (pr: {
-        iid: number;
-        source_branch: string;
-        title: string;
-        state: string;
-        created_at: string;
-      }) => ({
-        number: pr.iid,
-        branchName: pr.source_branch,
-        title: pr.title,
-        state: pr.state === 'opened' ? 'open' : pr.state,
-        createdAt: pr.created_at,
-      })
+    const branches = await getAllRenovateBranches(branchPrefix);
+
+    config.prList = await Promise.all(
+      branches.map(branchName => findPr(branchName))
     );
+
   }
   return config.prList;
 }
@@ -629,13 +641,21 @@ export async function findPr(
   state = 'all'
 ) {
   logger.debug(`findPr(${branchName}, ${prTitle}, ${state})`);
-  const prList = await getPrList();
-  return prList.find(
-    (p: { branchName: string; title: string; state: string }) =>
-      p.branchName === branchName &&
-      (!prTitle || p.title === prTitle) &&
-      matchesState(p.state, state)
-  );
+
+  const urlString = `projects/${
+    config.repository
+  }/merge_requests?source_branch=${urlEscape(branchName)}`;
+
+  const res = await api.get(urlString);
+
+  return res.body
+    .map(mapPullRequests)
+    .find(
+      (p: { branchName: string; title: string; state: string }) =>
+        p.branchName === branchName &&
+        (!prTitle || p.title === prTitle) &&
+        matchesState(p.state, state)
+    );
 }
 
 // Pull Request
