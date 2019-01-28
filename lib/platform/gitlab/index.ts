@@ -86,9 +86,11 @@ export function cleanRepo() {
 export async function initRepo({
   repository,
   localDir,
+  branchPrefix,
 }: {
   repository: string;
   localDir: string;
+  branchPrefix: string;
 }) {
   config = {} as any;
   config.repository = urlEscape(repository);
@@ -146,7 +148,8 @@ export async function initRepo({
       ...config,
       url,
     });
-    // TODO: Check if needed await Promise.all([getFileList()]);
+    // TODO: Check if need:
+    // await Promise.all([getPrList(branchPrefix), getFileList()]);
   } catch (err) /* istanbul ignore next */ {
     logger.debug({ err }, 'Caught initRepo error');
     if (err.message.includes('HEAD is not a symbolic ref')) {
@@ -204,19 +207,9 @@ export async function getBranchPr(branchName: string) {
   if (!(await branchExists(branchName))) {
     return null;
   }
-  const urlString = `projects/${config.repository}/merge_requests?state=opened&per_page=100`;
-  const res = await api.get(urlString, { paginate: true });
-  logger.debug(`Got res with ${res.body.length} results`);
-  let pr: any = null;
-  res.body.forEach((result: { source_branch: string }) => {
-    if (result.source_branch === branchName) {
-      pr = result;
-    }
-  });
-  if (!pr) {
-    return null;
-  }
-  return getPr(pr.iid);
+  const pr = await findPr(branchName, null, 'opened');
+
+  return pr ? getPr(pr.number) : null;
 }
 
 export function getAllRenovateBranches(branchPrefix: string) {
@@ -617,10 +610,11 @@ export async function getPrList(branchPrefix: string) {
   if (!config.prList) {
     const branches = await getAllRenovateBranches(branchPrefix);
 
-    config.prList = await Promise.all(
+    const prList = await Promise.all(
       branches.map(branchName => findPr(branchName))
     );
 
+    config.prList = prList.filter(x => !!x);
   }
   return config.prList;
 }
