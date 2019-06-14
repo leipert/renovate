@@ -207,7 +207,7 @@ export async function getBranchPr(branchName: string) {
   if (!(await branchExists(branchName))) {
     return null;
   }
-  const pr = await findPr(branchName, null, 'opened');
+  const pr = await findPr(branchName, null, 'open');
 
   return pr ? getPr(pr.number) : null;
 }
